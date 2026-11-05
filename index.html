@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>服药提醒 · 手机端</title>
+<style>
+  :root{
+    --ink:#111417; --body:#3d454b; --muted:#8a9299;
+    --line:#e5e9eb; --bg:#f6f8f7; --card:#fff;
+    --green:#0f9d63; --green-soft:#e8f6ef;
+    --red:#d64545; --red-soft:#fdecec; --amber:#c98a1e;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;padding:16px 16px 96px;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif;
+    font-size:17px;line-height:1.55;
+  }
+  h1{font-size:26px;margin:4px 0 2px;letter-spacing:.5px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px}
+  .row{display:flex;align-items:center;gap:12px}
+  .between{justify-content:space-between}
+  .label{font-size:13px;color:var(--muted);letter-spacing:.5px}
+  .big{font-size:42px;font-weight:700;line-height:1.1}
+  .unit{font-size:18px;color:var(--muted);margin-left:4px}
+  .state{font-size:22px;font-weight:600}
+  .tag{display:inline-block;padding:4px 12px;border-radius:999px;font-size:14px;font-weight:600}
+  .tag.idle{background:#eef1f2;color:#5b6469}
+  .tag.remind{background:#fff4e0;color:#a36a00}
+  .tag.taken{background:var(--green-soft);color:var(--green)}
+  .tag.missed{background:var(--red-soft);color:var(--red)}
+  .tag.risk{background:var(--red-soft);color:var(--red)}
+  button{
+    font:inherit;font-weight:600;border:none;border-radius:12px;padding:14px 18px;
+    background:#eef1f2;color:var(--ink);cursor:pointer;
+  }
+  button:active{transform:scale(.98)}
+  .primary{background:var(--green);color:#fff}
+  .danger{background:var(--red);color:#fff}
+  .ghost{background:#fff;border:1px solid var(--line)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .log{max-height:220px;overflow:auto;font-size:14px;color:var(--body);
+       font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .log b{color:var(--ink)}
+  select,input{
+    font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:#fff;width:100%
+  }
+  .hint{font-size:13px;color:var(--muted);margin-top:8px}
+  .banner{background:var(--red-soft);color:var(--red);border-radius:12px;padding:14px;font-weight:600;display:none}
+  .banner.on{display:block}
+  footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
+         padding:10px 16px;display:flex;gap:10px;align-items:center}
+  footer .dot{width:10px;height:10px;border-radius:50%;background:#c9d0d4}
+  footer .dot.on{background:var(--green)}
+  video{width:100%;border-radius:12px;display:none}
+</style>
+</head>
+<body>
+
+<h1>服药提醒 <span style="color:var(--green)">·</span> 家属端</h1>
+<div class="sub">Web Bluetooth 原型 · 仅在 Android Chrome 可用</div>
+
+<!-- 连接 -->
+<div class="card">
+  <div class="row between">
+    <div>
+      <div class="label">设备连接</div>
+      <div class="state" id="connText">未连接</div>
+    </div>
+    <button class="primary" id="btnConnect">连接设备</button>
+  </div>
+  <details style="margin-top:12px">
+    <summary class="label">蓝牙 UUID 设置（连不上时改这里）</summary>
+    <div style="margin-top:10px">
+      <div class="label">Service UUID</div>
+      <input id="svcUuid" value="0000ffe0-0000-1000-8000-00805f9b34fb">
+      <div class="label" style="margin-top:8px">Characteristic UUID</div>
+      <input id="chrUuid" value="0000ffe1-0000-1000-8000-00805f9b34fb">
+      <div class="hint">JDY-23 常见为 FFE0/FFE1；用 nRF Connect 抓到的实际值填这里。</div>
+    </div>
+  </details>
+</div>
+
+<!-- 状态 -->
+<div class="card">
+  <div class="row between">
+    <div>
+      <div class="label">当前状态</div>
+      <div class="row" style="gap:10px;margin-top:6px">
+        <span class="tag idle" id="stateTag">待机</span>
+        <span class="state" id="weightText" style="font-size:20px">0.0 g</span>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="label">药品</div>
+      <div class="state" id="drugText" style="font-size:18px">未识别</div>
+    </div>
+  </div>
+  <div class="banner" id="riskBanner" style="margin-top:12px">⚠ 检测到配伍风险，已提示老人暂停服药</div>
+</div>
+
+<!-- 扫码 -->
+<div class="card">
+  <div class="label">药品识别</div>
+  <div class="grid2" style="margin-top:10px">
+    <button class="primary" id="btnScan">扫描药盒条码</button>
+    <button class="ghost" id="btnPick">从列表选择</button>
+  </div>
+  <select id="drugSelect" style="margin-top:10px"></select>
+  <video id="video" playsinline></video>
+  <div class="hint">条码只做“识别药品 ID”，配伍判断在本地规则表里完成。</div>
+</div>
+
+<!-- 语音 -->
+<div class="card">
+  <div class="label">亲情语音（设备播放）</div>
+  <div class="grid3" style="margin-top:10px">
+    <button data-voice="5">孙女</button>
+    <button data-voice="6">老伴</button>
+    <button data-voice="7">儿子</button>
+  </div>
+  <div class="hint">录音提前放进 TF 卡：0005.mp3 / 0006.mp3 / 0007.mp3</div>
+</div>
+
+<!-- 记录 -->
+<div class="card">
+  <div class="row between">
+    <div class="label">本次会话记录</div>
+    <button class="ghost" id="btnClear" style="padding:8px 12px;font-size:14px">清空</button>
+  </div>
+  <div class="log" id="log" style="margin-top:10px">（还没有数据）</div>
+</div>
+
+<!-- 演示模式 -->
+<div class="card">
+  <div class="row between">
+    <div>
+      <div class="label">演示模式</div>
+      <div class="hint">硬件出问题时用这个撑答辩</div>
+    </div>
+    <button class="ghost" id="btnDemo">开启模拟</button>
+  </div>
+  <div class="grid2" id="demoPad" style="margin-top:10px;display:none">
+    <button data-demo="place">模拟放药</button>
+    <button data-demo="taken">模拟取药</button>
+    <button data-demo="missed">模拟漏服</button>
+    <button data-demo="risk">模拟风险</button>
+  </div>
+</div>
+
+<footer>
+  <span class="dot" id="dot"></span>
+  <span class="label" id="footText">未连接</span>
+</footer>
+
+<script>
+// ============================================================
+// 药品库与配伍规则（演示用最小集，生产需接权威数据库）
+// ============================================================
+const DRUGS = [
+  { id: "amlodipine", name: "氨氯地平", en: "Amlodipine", kind: "降压药" },
+  { id: "nifedipine", name: "硝苯地平", en: "Nifedipine", kind: "降压药" },
+  { id: "aspirin",    name: "阿司匹林", en: "Aspirin",    kind: "抗血小板" },
+  { id: "warfarin",   name: "华法林",   en: "Warfarin",   kind: "抗凝药" },
+  { id: "ibuprofen",  name: "布洛芬",   en: "Ibuprofen",  kind: "解热镇痛" },
+  { id: "metformin",  name: "二甲双胍", en: "Metformin",  kind: "降糖药" },
+  { id: "atorvastatin", name: "阿托伐他汀", en: "Atorvastatin", kind: "调脂药" },
+  { id: "cefuroxime", name: "头孢呋辛", en: "Cefuroxime", kind: "抗菌药" },
+];
+
+// 注意：以下规则只用于原型演示，不能作为真实用药建议
+const RULES = [
+  { a: "warfarin",    b: "aspirin",   level: 2, msg: "华法林 + 阿司匹林：出血风险显著增加" },
+  { a: "warfarin",    b: "ibuprofen", level: 2, msg: "华法林 + 布洛芬：消化道出血风险增加" },
+  { a: "aspirin",     b: "ibuprofen", level: 1, msg: "阿司匹林 + 布洛芬：相互削弱并增加胃出血风险" },
+  { a: "warfarin",    b: "cefuroxime",level: 1, msg: "华法林 + 头孢类：抗凝作用可能增强" },
+];
+
+// 演示用条码映射（真实项目应接药品条码库）
+const BARCODE_MAP = {
+  "6901234567890": "amlodipine",
+  "6901234567891": "aspirin",
+  "6901234567892": "warfarin",
+};
+
+// ============================================================
+// 状态
+// ============================================================
+const $ = (id) => document.getElementById(id);
+let device = null, characteristic = null, connected = false;
+let currentDrug = null, takenDrugs = [], demo = false;
+
+// ============================================================
+// UI 工具
+// ============================================================
+function log(text, kind = "") {
+  const el = $("log");
+  if (el.textContent.startsWith("（")) el.textContent = "";
+  const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  const line = `[${time}] ${text}\n`;
+  el.textContent = line + el.textContent;
+  if (kind === "risk") el.style.color = "#d64545";
+}
+
+function setConn(on) {
+  connected = on;
+  $("connText").textContent = on ? "已连接" : "未连接";
+  $("dot").classList.toggle("on", on);
+  $("footText").textContent = on ? "已连接 · 实时同步中" : "未连接";
+  $("btnConnect").textContent = on ? "断开" : "连接设备";
+}
+
+const STATE_TEXT = { idle: "待机", remind: "请服药", taken: "已服药", missed: "漏服" };
+function setState(s) {
+  const tag = $("stateTag");
+  tag.className = "tag " + (s || "idle");
+  tag.textContent = STATE_TEXT[s] || "待机";
+}
+
+// ============================================================
+// 蓝牙
+// ============================================================
+async function connect() {
+  if (!navigator.bluetooth) {
+    alert("这台设备/浏览器不支持 Web Bluetooth。请用 Android 的 Chrome。");
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [$("svcUuid").value.trim()],
+    });
+    device.addEventListener("gattserverdisconnected", () => {
+      setConn(false);
+      log("设备断开");
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService($("svcUuid").value.trim());
+    characteristic = await service.getCharacteristic($("chrUuid").value.trim());
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener("characteristicvaluechanged", onNotify);
+
+    setConn(true);
+    log("已连接：" + (device.name || "未命名设备"));
+  } catch (e) {
+    log("连接失败：" + e.message);
+  }
+}
+
+function onNotify(event) {
+  const text = new TextDecoder().decode(event.target.value).trim();
+  text.split("\n").forEach((line) => {
+    if (!line.trim()) return;
+    try {
+      const msg = JSON.parse(line);
+      if (msg.t === "evt") {
+        setState(msg.v);
+        if (msg.w !== undefined) $("weightText").textContent = msg.w.toFixed(1) + " g";
+        log("事件：" + (STATE_TEXT[msg.v] || msg.v) + "  重量 " + (msg.w ?? "-") + " g");
+      } else if (msg.t === "st") {
+        setState(msg.v);
+        if (msg.w !== undefined) $("weightText").textContent = msg.w.toFixed(1) + " g";
+      } else if (msg.t === "hello") {
+        log("设备握手：" + msg.v);
+      }
+    } catch (_) {
+      log("原始数据：" + line);
+    }
+  });
+}
+
+function send(obj) {
+  if (!connected || !characteristic) {
+    log("未连接，指令未发送：" + JSON.stringify(obj));
+    return;
+  }
+  const data = new TextEncoder().encode(JSON.stringify(obj) + "\n");
+  characteristic.writeValue(data).then(() => {
+    log("→ " + JSON.stringify(obj));
+  }).catch((e) => log("发送失败：" + e.message));
+}
+
+// ============================================================
+// 药品选择与配伍检查
+// ============================================================
+function initDrugSelect() {
+  const sel = $("drugSelect");
+  DRUGS.forEach((d) => {
+    const o = document.createElement("option");
+    o.value = d.id;
+    o.textContent = `${d.name}（${d.kind}）`;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => pickDrug(sel.value));
+}
+
+function checkRisk(drug) {
+  for (const r of RULES) {
+    const hit = (r.a === drug.id && takenDrugs.includes(r.b)) ||
+                (r.b === drug.id && takenDrugs.includes(r.a));
+    if (hit) return r;
+  }
+  return null;
+}
+
+function pickDrug(id) {
+  const drug = DRUGS.find((d) => d.id === id);
+  if (!drug) return;
+  currentDrug = drug;
+  const rule = checkRisk(drug);
+  const risk = rule ? (rule.level >= 2 ? 2 : 1) : 0;
+
+  $("drugText").textContent = drug.name;
+  $("riskBanner").classList.toggle("on", risk > 0);
+  if (rule) {
+    $("riskBanner").textContent = "⚠ " + rule.msg;
+    log("配伍风险：" + rule.msg, "risk");
+  } else {
+    log("选择药品：" + drug.name + "（无已知冲突）");
+  }
+
+  send({ cmd: "drug", name: drug.en, risk });
+  if (!takenDrugs.includes(drug.id)) takenDrugs.push(drug.id);
+}
+
+// ============================================================
+// 扫码（BarcodeDetector，Android Chrome 可用）
+// ============================================================
+async function scanBarcode() {
+  if (!("BarcodeDetector" in window)) {
+    log("此浏览器不支持 BarcodeDetector，请手动从列表选择");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    const video = $("video");
+    video.srcObject = stream;
+    video.style.display = "block";
+    await video.play();
+
+    const detector = new BarcodeDetector({ formats: ["ean_13", "code_128", "qr_code"] });
+    const tick = async () => {
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length) {
+          const code = codes[0].rawValue;
+          video.style.display = "none";
+          stream.getTracks().forEach((t) => t.stop());
+          log("扫到条码：" + code);
+          const drugId = BARCODE_MAP[code];
+          if (drugId) pickDrug(drugId);
+          else log("条码未在演示库中，请手动选择药品");
+          return;
+        }
+      } catch (_) {}
+      requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {
+    log("摄像头打开失败：" + e.message);
+  }
+}
+
+// ============================================================
+// 演示模式（硬件不可用时撑答辩）
+// ============================================================
+function simulate(kind) {
+  const fake = { place: "remind", taken: "taken", missed: "missed", risk: "remind" };
+  const w = { place: 186.4, taken: 2.1, missed: 186.4, risk: 186.4 };
+  setState(fake[kind]);
+  $("weightText").textContent = w[kind].toFixed(1) + " g";
+  if (kind === "risk") {
+    $("riskBanner").classList.add("on");
+    $("riskBanner").textContent = "⚠ 华法林 + 阿司匹林：出血风险显著增加";
+    log("模拟风险事件", "risk");
+  } else {
+    log("模拟事件：" + (STATE_TEXT[fake[kind]] || kind));
+  }
+}
+
+// ============================================================
+// 事件绑定
+// ============================================================
+$("btnConnect").addEventListener("click", () => {
+  if (connected && device) { device.gatt.disconnect(); setConn(false); }
+  else connect();
+});
+$("btnScan").addEventListener("click", scanBarcode);
+$("btnPick").addEventListener("click", () => {
+  $("drugSelect").selectedIndex = 0;
+  pickDrug($("drugSelect").value);
+});
+document.querySelectorAll("[data-voice]").forEach((b) => {
+  b.addEventListener("click", () => send({ cmd: "voice", idx: Number(b.dataset.voice) }));
+});
+document.querySelectorAll("[data-demo]").forEach((b) => {
+  b.addEventListener("click", () => simulate(b.dataset.demo));
+});
+$("btnDemo").addEventListener("click", () => {
+  demo = !demo;
+  $("demoPad").style.display = demo ? "grid" : "none";
+  $("btnDemo").textContent = demo ? "关闭模拟" : "开启模拟";
+});
+$("btnClear").addEventListener("click", () => { $("log").textContent = "（还没有数据）"; });
+
+initDrugSelect();
+setState("idle");
+log("就绪：点「连接设备」配对药盒");
+</script>
+</body>
+</html>
