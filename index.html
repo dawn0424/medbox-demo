@@ -122,7 +122,11 @@
     <button data-voice="6">老伴</button>
     <button data-voice="7">儿子</button>
   </div>
-  <div class="hint">录音提前放进 TF 卡：0005.mp3 / 0006.mp3 / 0007.mp3</div>
+  <div class="row between" style="margin-top:12px">
+    <div class="hint" style="margin:0">没接语音模块时，用手机自己播</div>
+    <button class="ghost" id="btnLocalVoice" style="padding:8px 12px;font-size:14px">手机播放：关</button>
+  </div>
+  <div class="hint">录音提前放进 TF 卡：01/005.mp3 / 006.mp3 / 007.mp3</div>
 </div>
 
 <!-- 记录 -->
@@ -185,6 +189,27 @@ const BARCODE_MAP = {
   "6901234567891": "aspirin",
   "6901234567892": "warfarin",
 };
+
+// 语音编号 → 文案（手机本地朗读用，也是录制的参考）
+const VOICE_TEXT = {
+  1: "该吃药了",
+  2: "已记录，真棒",
+  3: "超过时间没吃药，记得补服",
+  4: "注意，这两种药不能一起吃",
+  5: "奶奶，我是乐乐，今天也要乖乖吃药哦",
+  6: "老头子，药吃了没？别忘了喝水",
+  7: "妈，我晚上给你打电话，先把药吃了",
+};
+let localVoice = false;
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "zh-CN";
+  u.rate = 0.95;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
 
 // ============================================================
 // 状态
@@ -396,7 +421,17 @@ $("btnPick").addEventListener("click", () => {
   pickDrug($("drugSelect").value);
 });
 document.querySelectorAll("[data-voice]").forEach((b) => {
-  b.addEventListener("click", () => send({ cmd: "voice", idx: Number(b.dataset.voice) }));
+  b.addEventListener("click", () => {
+    const idx = Number(b.dataset.voice);
+    send({ cmd: "voice", idx });
+    if (localVoice) { speak(VOICE_TEXT[idx] || ""); log("手机朗读：" + (VOICE_TEXT[idx] || "")); }
+  });
+});
+
+$("btnLocalVoice").addEventListener("click", () => {
+  localVoice = !localVoice;
+  $("btnLocalVoice").textContent = localVoice ? "手机播放：开" : "手机播放：关";
+  if (localVoice) speak("手机语音已开启");
 });
 document.querySelectorAll("[data-demo]").forEach((b) => {
   b.addEventListener("click", () => simulate(b.dataset.demo));
